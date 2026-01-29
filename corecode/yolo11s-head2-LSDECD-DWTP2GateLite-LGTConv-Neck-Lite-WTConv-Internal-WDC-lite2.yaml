@@ -1,0 +1,56 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# YOLO11 head2 + LSDECD-DWTP2GateLite + LGTConv-Neck-Lite + WTConv-Internal + WDC
+
+# Parameters
+nc: 80 # number of classes
+scales: # [depth, width, max_channels]
+  n: [0.50, 0.25, 512]
+  s: [2.00, 0.50, 384]
+  m: [0.50, 0.75, 384]
+  l: [1.00, 0.75, 384]
+  x: [1.00, 1.00, 384]
+
+# YOLO11n backbone (P2-focused)
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [48, 3, 2]]   # 0-P1/2
+  - [-1, 1, Conv, [96, 3, 2]]   # 1-P2/4
+
+  # P2: 核心高频层，保持 WDG 能力（C3_WDG）
+  - [-1, 1, C3_WDG, [192, False, 0.25]]  # 2
+
+  - [-1, 1, Conv, [192, 3, 2]]  # 3-P3/8
+  - [-1, 1, C3_WDG, [320, False, 0.25]]  # 4
+
+  - [-1, 1, Conv, [320, 3, 2]]  # 5-P4/16
+  - [-1, 1, C3k2_Faster, [320, True, 0.25]]  # 6
+
+  - [-1, 1, Conv, [512, 3, 2]]  # 7-P5/32
+  - [-1, 1, C3k2_Faster, [512, True, 0.25]]  # 8
+
+  - [-1, 1, SPPF, [512, 5]]  # 9
+  - [-1, 1, C2PSA, [512]]    # 10
+
+# YOLO11n head (P2-focused FPN)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]           # 11
+  - [-1, 1, LGE, [192, 192, 3, 1, 1]]                    # 12 (LGE: Log-Gabor Enhancer)
+  - [[-1, 6], 1, Concat, [1]]                             # 13
+  - [-1, 1, C3k2_Faster, [320, False, 0.25]]              # 14
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]           # 15
+  - [-1, 1, LGE, [128, 128, 3, 1, 1]]                    # 16
+  - [[-1, 4], 1, Concat, [1]]                             # 17
+  - [-1, 1, C3k2_Faster, [192, False, 0.25]]              # 18
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]           # 19
+  - [-1, 1, LGE_W, [96, 96, 3, 1, 1]]                    # 20 (LGE-W: Wavelet variant)
+  - [[-1, 2], 1, Concat, [1]]                             # 21
+  - [-1, 1, C3_WDG, [160, False, 0.25]]                   # 22
+
+  - [-1, 1, Conv, [160, 3, 2]]                            # 23
+  - [[-1, 18], 1, Concat, [1]]                            # 24
+  - [-1, 1, C3k2_Faster, [192, False, 0.25]]              # 25
+
+  # Detect(P2,P3): Frequency-Driven Head (FDHead) with P2 Haar-DWT HF Gate
+  - [[22, 25], 1, FDHead, [nc, 192]]
