@@ -1,8 +1,4 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
-"""
-LGT-Conv Neck Lite Module for YOLO11
-轻量化版本的Neck LGT模块，集成WTConv_original作为可替换卷积
-"""
 
 import torch
 import torch.nn as nn
@@ -41,10 +37,7 @@ class Conv(nn.Module):
 
 
 class LGF(nn.Module):
-    """
-    轻量化Log-Gabor滤波器组
-    保持原有的频域处理能力，但优化了实现
-    """
+    
     def __init__(self, in_channels, kernel_size=5, num_orientations=2, num_scales=1):
         super(LGF, self).__init__()
         self.in_channels = in_channels
@@ -52,7 +45,7 @@ class LGF(nn.Module):
         self.num_orientations = num_orientations
         self.num_scales = num_scales
         
-        # Log-Gabor分组卷积
+        
         self.total_filters = num_orientations * num_scales
         self.grouped_conv = nn.Conv2d(
             in_channels, 
@@ -63,11 +56,11 @@ class LGF(nn.Module):
             bias=False
         )
         
-        # 初始化Log-Gabor滤波器
+        
         self._init_loggabor_filters()
         
     def _init_loggabor_filters(self):
-        """初始化Log-Gabor滤波器"""
+        
         with torch.no_grad():
             filters = []
             for s in range(self.num_scales):
@@ -85,19 +78,19 @@ class LGF(nn.Module):
             self.grouped_conv.weight.data = repeated_filters
     
     def _create_loggabor_kernel(self, kernel_size, orientation, scale):
-        """创建单个Log-Gabor滤波器核"""
+        
         center = kernel_size // 2
         x, y = torch.meshgrid(torch.arange(kernel_size), torch.arange(kernel_size), indexing='ij')
         x = x.float() - center
         y = y.float() - center
         
-        # 旋转坐标
+        
         cos_orient = math.cos(orientation)
         sin_orient = math.sin(orientation)
         x_rot = x * cos_orient + y * sin_orient
         y_rot = -x * sin_orient + y * cos_orient
         
-        # Log-Gabor函数
+        
         r = torch.sqrt(x_rot**2 + y_rot**2)
         theta = torch.atan2(y_rot, x_rot)
         r = torch.clamp(r, min=1e-6)
@@ -109,7 +102,7 @@ class LGF(nn.Module):
         return log_gabor.unsqueeze(0).unsqueeze(0)
     
     def forward(self, x):
-        """前向传播"""
+        
         out = self.grouped_conv(x)
         B, C_total, H, W = out.shape
         C = self.in_channels
@@ -118,25 +111,11 @@ class LGF(nn.Module):
 
 
 class LGE_W(nn.Module):
-    """
-    轻量化LGT Neck模块
-    
-    核心设计：
-    1. 保留Log-Gabor滤波器（核心高频增强）
-    2. 移除低频分支（由后续C3k2处理）
-    3. 移除注意力机制（用简单缩放因子）
-    4. 移除内部融合（让YOLO的concat处理）
-    5. 只处理Ci，输出增强后的特征
-    
-    使用方式：
-    在 YAML 中（示例）：
-    - [-1, 1, LGE_W, [128, 128, 3, 1, 1]]  # 处理 Ci
-    - [[-1, 11], 1, Concat, [1]]          # 与 Pi+1 融合
-    """
+   
     def __init__(self, c1, c2=None, kernel_size=5, num_orientations=2, num_scales=1):
         super(LGE_W, self).__init__()
         
-        # 如果c2未指定，默认等于c1（保持通道数不变）
+        
         if c2 is None:
             c2 = c1
             
@@ -145,26 +124,26 @@ class LGE_W(nn.Module):
         self.num_orientations = num_orientations
         self.num_scales = num_scales
         
-        # Log-Gabor滤波器（核心组件，保持不变）
+       
         self.loggabor_filter = LGF(
             c1, kernel_size, num_orientations, num_scales
         )
         
-        # 方向和尺度的可学习权重
+        
         self.orientation_weights = nn.Parameter(torch.ones(num_orientations))
         self.scale_weights = nn.Parameter(torch.ones(num_scales))
         
-        # 简单的缩放因子（替代注意力机制）
+        
         self.scale_factor = nn.Parameter(torch.ones(1) * 0.5)
         
-        # 高频特征处理：优先用 WTConv（要求c1==c2），否则回退DWConv以保持通道/参数稳定
+      
         if c1 == c2:
             self.high_conv = WTConv(c1, c2, kernel_size=3, stride=1)
             print(f"use WTConv2d for high_conv")
         else:
             self.high_conv = Conv(c1, c2, 3, 1, g=1)
             print(f"use normal conv for high_conv")
-        # 残差连接（如果通道数匹配）
+        
         if c1 != c2:
             self.shortcut = Conv(c1, c2, 1, 1)
             print(f"use normal conv for shortcut")
@@ -173,40 +152,33 @@ class LGE_W(nn.Module):
             print(f"use identity for shortcut")
     
     def forward(self, x):
-        """
-        前向传播
-        Args:
-            x: 输入特征 [B, C1, H, W]
-        Returns:
-            增强后的特征 [B, C2, H, W]
-        """
-        # 保存输入用于残差连接
+      
         identity = self.shortcut(x)
         
-        # Log-Gabor滤波器进行子带分解
+       
         subbands = self.loggabor_filter(x)  # [B, C, K*S, H, W]
         
-        # 加权聚合不同方向和尺度
+        
         B, C, total_filters, H, W = subbands.shape
         subbands_reshaped = subbands.view(B, C, self.num_scales, self.num_orientations, H, W)
         
-        # 归一化权重
+        
         orientation_weights = F.softmax(self.orientation_weights, dim=0)
         scale_weights = F.softmax(self.scale_weights, dim=0)
         
-        # 加权聚合
+        
         f_high = torch.zeros_like(subbands_reshaped[:, :, 0, 0, :, :])
         for s in range(self.num_scales):
             for k in range(self.num_orientations):
                 f_high += scale_weights[s] * orientation_weights[k] * subbands_reshaped[:, :, s, k, :, :]
         
-        # 应用简单缩放因子（替代注意力）
+       
         f_high = f_high * torch.sigmoid(self.scale_factor)
         
-        # 高频特征处理
+      
         f_high = self.high_conv(f_high)
         
-        # 残差连接
+      
         out = identity + f_high
         
         return out

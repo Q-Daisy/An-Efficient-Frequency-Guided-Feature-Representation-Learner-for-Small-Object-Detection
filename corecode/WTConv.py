@@ -13,7 +13,7 @@ def create_wavelet_filter(wave, in_size, out_size, type=torch.float):
                                dec_hi.unsqueeze(0) * dec_lo.unsqueeze(1),
                                dec_hi.unsqueeze(0) * dec_hi.unsqueeze(1)], dim=0)
  
-    # 对于groups卷积，滤波器形状应该是 [in_size*4, 1, kernel_h, kernel_w]
+   
     dec_filters = dec_filters.unsqueeze(0).repeat(in_size, 1, 1, 1)
     dec_filters = dec_filters.reshape(in_size * 4, 1, dec_filters.shape[2], dec_filters.shape[3])
  
@@ -24,7 +24,7 @@ def create_wavelet_filter(wave, in_size, out_size, type=torch.float):
                                rec_hi.unsqueeze(0) * rec_lo.unsqueeze(1),
                                rec_hi.unsqueeze(0) * rec_hi.unsqueeze(1)], dim=0)
  
-    # 对于groups卷积，滤波器形状应该是 [out_size*4, 1, kernel_h, kernel_w]
+    
     rec_filters = rec_filters.unsqueeze(0).repeat(out_size, 1, 1, 1)
     rec_filters = rec_filters.reshape(out_size * 4, 1, rec_filters.shape[2], rec_filters.shape[3])
  
@@ -34,7 +34,7 @@ def wavelet_transform(x, filters):
     b, c, h, w = x.shape
     pad = (filters.shape[2] // 2 - 1, filters.shape[3] // 2 - 1)
     x = F.conv2d(x, filters, stride=2, groups=c, padding=pad)
-    # 卷积后的形状是 [b, c*4, h//2, w//2]，需要reshape成 [b, c, 4, h//2, w//2]
+
     x = x.reshape(b, c, 4, h // 2, w // 2)
     return x
  
